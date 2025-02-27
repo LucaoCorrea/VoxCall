@@ -5,7 +5,13 @@ import tkinter as tk
 from tkinter import messagebox
 import random
 import string
+import sys
+import os
 from google_auth_oauthlib.flow import InstalledAppFlow
+
+sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
+
+from db.db import store_user_in_mysql, get_messages_from_mysql
 
 PORT = 12345
 SERVER_IP = "127.0.0.1"
@@ -48,6 +54,7 @@ def send_message(event=None):
         client_socket.sendall(f"MSG:{client_id}: {message}".encode())
         chat_text.insert(tk.END, f"You: {message}\n")
         message_entry.delete(0, tk.END)
+        store_user_in_mysql(client_id, "User Name", "user@example.com", "profile_pic.jpg")
 
 def receive_messages():
     while client_socket:
@@ -55,9 +62,14 @@ def receive_messages():
             data = client_socket.recv(BUFFER_SIZE)
             if not data:
                 break
-            data = data.decode(errors='ignore')
+            data = data.decode(errors="ignore")
             if data.startswith("MSG:"):
-                chat_text.insert(tk.END, f"{data[4:]}\n")
+                parts = data.split(":", 2)
+                sender_id, message = parts[1], parts[2]
+                chat_text.insert(tk.END, f"{sender_id}: {message}\n")
+                messages = get_messages_from_mysql()
+                for msg in messages:
+                    chat_text.insert(tk.END, f"{msg['client_id']}: {msg['message']}\n")
             elif data.startswith("UPDATE_USERS:"):
                 update_client_list(data[13:].split(","))
         except (socket.error, ConnectionResetError):
@@ -69,7 +81,7 @@ def update_client_list(clients):
         client_listbox.insert(tk.END, client)
 
 def toggle_mute():
-    global mute_audio, mute_btn
+    global mute_audio
     mute_audio = not mute_audio
     mute_btn.config(text="Unmute Microphone" if mute_audio else "Mute Microphone")
 
@@ -103,57 +115,65 @@ def disconnect_server():
         mute_btn.config(state=tk.DISABLED)
 
 def authenticate_google():
-    flow = InstalledAppFlow.from_client_secrets_file(
-        "client_secrets.json",
-        scopes=[
-            "https://www.googleapis.com/auth/userinfo.email",
-            "https://www.googleapis.com/auth/userinfo.profile",
-        ],
-    )
-    credentials = flow.run_local_server(port=0)
-    messagebox.showinfo("Google Login", "Login successful!")
+    """Autenticação via Google OAuth2"""
+    try:
+        credentials_path = os.path.join(os.path.dirname(__file__), "client_secrets.json")
+        flow = InstalledAppFlow.from_client_secrets_file(
+            credentials_path,
+            scopes=[
+                "https://www.googleapis.com/auth/userinfo.email",
+                "https://www.googleapis.com/auth/userinfo.profile",
+                "openid"
+            ],
+        )
+        credentials = flow.run_local_server(port=0)
+        messagebox.showinfo("Google Login", "Login bem-sucedido!")
+    except FileNotFoundError:
+        messagebox.showerror("Erro", "Arquivo client_secrets.json não encontrado!")
+    except Exception as e:
+        messagebox.showerror("Erro", f"Falha na autenticação: {e}")
 
 def create_client_gui():
     global status_label, connect_btn, disconnect_btn, mute_btn, client_listbox, message_entry, chat_text
     root = tk.Tk()
     root.title("VoxCall - Client")
-    root.geometry("500x400")
-
-    google_login_btn = tk.Button(root, text="Login with Google", command=authenticate_google)
+    root.geometry("800x600")
+    
+    google_login_btn = tk.Button(root, text="Login com Google", command=authenticate_google)
     google_login_btn.pack(pady=5)
-
-    connect_btn = tk.Button(root, text="Connect to Server", command=connect_server)
+    
+    connect_btn = tk.Button(root, text="Conectar ao Servidor", command=connect_server)
     connect_btn.pack(pady=5)
-
-    disconnect_btn = tk.Button(root, text="Disconnect", command=disconnect_server, state=tk.DISABLED)
+    
+    disconnect_btn = tk.Button(root, text="Desconectar", command=disconnect_server, state=tk.DISABLED)
     disconnect_btn.pack(pady=5)
-
-    mute_btn = tk.Button(root, text="Mute Microphone", command=toggle_mute, state=tk.DISABLED)
+    
+    mute_btn = tk.Button(root, text="Mutar Microfone", command=toggle_mute, state=tk.DISABLED)
     mute_btn.pack(pady=5)
-
-    status_label = tk.Label(root, text="Disconnected", fg="red")
+    
+    status_label = tk.Label(root, text="Desconectado", fg="red")
     status_label.pack(pady=5)
-
+    
     client_listbox = tk.Listbox(root)
     client_listbox.pack(pady=5, fill=tk.BOTH, expand=True)
-
+    
     chat_frame = tk.Frame(root)
     chat_frame.pack(pady=5, fill=tk.BOTH, expand=True)
-
+    
     chat_text = tk.Text(chat_frame, height=10)
     chat_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
+    
     scrollbar = tk.Scrollbar(chat_frame, command=chat_text.yview)
     scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
     chat_text.config(yscrollcommand=scrollbar.set)
-
+    
     message_entry = tk.Entry(root)
     message_entry.pack(pady=5, fill=tk.X, expand=True)
     message_entry.bind("<Return>", send_message)
-
-    send_btn = tk.Button(root, text="Send", command=send_message)
+    
+    send_btn = tk.Button(root, text="Enviar", command=send_message)
     send_btn.pack(pady=5)
-
+    
     root.mainloop()
 
 if __name__ == "__main__":
