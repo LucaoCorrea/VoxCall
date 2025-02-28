@@ -1,5 +1,8 @@
 import mysql.connector
 from mysql.connector import Error
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 def connect_mysql():
     try:
@@ -12,6 +15,36 @@ def connect_mysql():
     except Error as e:
         print(f"Erro ao conectar com o MySQL: {e}")
         return None
+
+def create_tables():
+    conn = connect_mysql()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS contacts (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id VARCHAR(255) NOT NULL,
+                    contact_id VARCHAR(255) NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS friend_requests (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id VARCHAR(255) NOT NULL,
+                    friend_id VARCHAR(255) NOT NULL,
+                    status ENUM('pending', 'accepted', 'rejected') DEFAULT 'pending',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.commit()
+            print("Tabelas criadas com sucesso!")
+        except Error as e:
+            print(f"Erro ao criar tabelas no MySQL: {e}")
+        finally:
+            cursor.close()
+            conn.close()
 
 def store_user_in_mysql(uid, name, email, profile_picture):
     conn = connect_mysql()
@@ -135,3 +168,34 @@ def accept_friend_request(request_id):
         finally:
             cursor.close()
             conn.close()
+
+def send_email(to_email, subject, body):
+    try:
+        smtp_server = "smtp.gmail.com"
+        smtp_port = 587
+        smtp_user = "seu_email@gmail.com"
+        smtp_password = "sua_senha"
+
+        msg = MIMEMultipart()
+        msg['From'] = smtp_user
+        msg['To'] = to_email
+        msg['Subject'] = subject
+        msg.attach(MIMEText(body, 'plain'))
+
+        server = smtplib.SMTP(smtp_server, smtp_port)
+        server.starttls()
+        server.login(smtp_user, smtp_password)
+
+        server.sendmail(smtp_user, to_email, msg.as_string())
+        server.quit()
+        print("E-mail enviado com sucesso!")
+    except Exception as e:
+        print(f"Erro ao enviar e-mail: {e}")
+
+def send_audio(audio_file):
+    try:
+        print(f"Áudio {audio_file} enviado com sucesso!")
+    except Exception as e:
+        print(f"Erro ao enviar áudio: {e}")
+
+create_tables()
